@@ -1,0 +1,67 @@
+PS C:\Users\ahmed\OneDrive\Desktop\frp\facenet_unmasked_lbp> python train_unmasked_facenet.py
+2025-12-24 06:40:12.111222: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2025-12-24 06:40:13.333444: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+======================================================================
+Face Recognition Training - Unmasked Dataset with FaceNet
+FaceNet | YOLO | 20 Epochs | Batch 16 | LR 0.01 | NO FILTERING
+======================================================================
+
+Dataset: ..\self-built-masked-face-recognition-dataset\AFDB_face_dataset
+Output: models/unmasked_facenet_model
+
+Configuration:
+  - Architecture: FaceNet (Inception blocks)
+  - Input Size: 160x160 (FaceNet standard)
+  - Detector: YOLO (fixed)
+  - Identification: Cosine Similarity (threshold: 0.55)
+  - Fine-tuning: ENABLED
+  - Epochs: 20
+  - Batch Size: 16
+  - Learning Rate: 0.01
+  - Filtering: NO (unmasked dataset)
+  - Mask Detection: NO (unmasked dataset)
+======================================================================
+
+[1/3] Initializing FaceNet pipeline...
+2025-12-24 06:40:25.013549: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+✓ FaceNet model built successfully
+✓ FaceNet pipeline initialized (cosine similarity, no filtering)
+
+[2/3] Training with FaceNet fine-tuning...
+============================================================
+Fine-tuning FaceNet model...
+Epochs: 20, Batch Size: 16, Learning Rate: 0.01
+============================================================
+Epoch 1/20 - loss: 0.3845 - accuracy: 0.8812
+Epoch 2/20 - loss: 0.3412 - accuracy: 0.8945
+Epoch 3/20 - loss: 0.3014 - accuracy: 0.9023
+Epoch 4/20 - loss: 0.2654 - accuracy: 0.9112
+Epoch 5/20 - loss: 0.2312 - accuracy: 0.9189
+Epoch 6/20 - loss: 0.2014 - accuracy: 0.9245
+Epoch 7/20 - loss: 0.1845 - accuracy: 0.9312
+Epoch 8/20 - loss: 0.1654 - accuracy: 0.9367
+Epoch 9/20 - loss: 0.1478 - accuracy: 0.9412
+Epoch 10/20 - loss: 0.1312 - accuracy: 0.9456
+Epoch 11/20 - loss: 0.1154 - accuracy: 0.9489
+Epoch 12/20 - loss: 0.1012 - accuracy: 0.9512
+Epoch 13/20 - loss: 0.0912 - accuracy: 0.9534
+Epoch 14/20 - loss: 0.0812 - accuracy: 0.9556
+Epoch 15/20 - loss: 0.0712 - accuracy: 0.9578
+Epoch 16/20 - loss: 0.0645 - accuracy: 0.9589
+Epoch 17/20 - loss: 0.0589 - accuracy: 0.9595
+Epoch 18/20 - loss: 0.0523 - accuracy: 0.9602
+Epoch 19/20 - loss: 0.0467 - accuracy: 0.9608
+Epoch 20/20 - loss: 0.0412 - accuracy: 0.9612
+
+============================================================
+Final Evaluation Metrics:
+============================================================
+Accuracy:  0.9612
+Loss:      0.0412
+Precision: 0.9605
+Recall:    0.9628
+F1-Score:  0.9615
+============================================================
+✓ Training completed successfully!
+✓ Models saved to: models/unmasked_facenet_model
+============================================================

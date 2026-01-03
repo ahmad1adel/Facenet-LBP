@@ -1,0 +1,324 @@
+"""
+Complete Face Recognition Pipeline - Unmasked Dataset with FaceNet
+End-to-end processing from image to person identification (WITHOUT filtering, NO mask detection)
+Using FaceNet architecture for embeddings
+"""
+
+import cv2
+import numpy as np
+from typing import Dict, List, Optional, Tuple
+import os
+
+from .preprocessing import ImagePreprocessor
+from .segmentation import FaceSegmenter
+from .lbp_extractor import LBPExtractor
+from .embedding import FaceEmbedder
+from .detector import PersonDetector
+
+
+class FaceRecognitionPipeline:
+    """Complete face recognition pipeline for unmasked dataset with FaceNet"""
+    
+    def __init__(self, 
+                 target_size: Tuple[int, int] = (160, 160),  # FaceNet uses 160x160
+                 remove_bg: bool = True,
+                 detector_type: str = 'yolo',
+                 embedding_dim: int = 128,
+                 similarity_threshold: float = 0.55):
+        """
+        Initialize pipeline with FaceNet and cosine similarity (NO filtering)
+        
+        Args:
+            target_size: Target image size (160x160 for FaceNet)
+            remove_bg: Whether to remove background
+            detector_type: Face detector type ('yolo', 'mtcnn' or 'mediapipe')
+            embedding_dim: Embedding dimension (128 for FaceNet)
+            similarity_threshold: Minimum similarity score for identification (0-1)
+        """
+        # Initialize components (NO FILTERING for unmasked dataset)
+        self.preprocessor = ImagePreprocessor(target_size=target_size, remove_bg=remove_bg)
+        self.segmenter = FaceSegmenter(detector_type=detector_type)
+        # NO FILTER - removed for unmasked dataset
+        self.lbp_extractor = LBPExtractor(num_points=8, radius=1, method='uniform')
+        # FaceNet uses 160x160 input
+        self.embedder = FaceEmbedder(input_size=(target_size[1], target_size[0]), embedding_dim=embedding_dim)
+        self.detector = PersonDetector(similarity_threshold=similarity_threshold, combine_features=True)
+    
+    def process_image(self, image_path: Optional[str] = None,
+                     image: Optional[np.ndarray] = None) -> Dict:
+        """
+        Process single image through complete pipeline (WITHOUT filtering, NO mask detection)
+        
+        Args:
+            image_path: Path to image
+            image: Image as numpy array
+            
+        Returns:
+            Dictionary with processing results
+        """
+        # Step 1: Preprocessing
+        preprocessed = self.preprocessor.preprocess(image_path=image_path, image=image)
+        
+        # Step 2: Segmentation (WITHOUT mask detection)
+        segmentation_result = self.segmenter.segment_face(preprocessed)
+        
+        if segmentation_result['num_faces'] == 0:
+            return {
+                'success': False,
+                'message': 'No faces detected',
+                'preprocessed_image': preprocessed
+            }
+        
+        # Process each detected face
+        results = []
+        for face_data in segmentation_result['faces']:
+            try:
+                face_img = face_data['face_image']
+                
+                # Validate face image
+                if face_img is None or face_img.size == 0:
+                    print(f"Warning: Skipping invalid face image")
+                    continue
+                
+                if len(face_img.shape) != 3 or face_img.shape[2] != 3:
+                    print(f"Warning: Skipping face with invalid shape: {face_img.shape}")
+                    continue
+                
+                # NO FILTERING STEP - directly use the face image
+                
+                # Resize face to target size (160x160 for FaceNet)
+                if face_img.shape[:2] != self.preprocessor.target_size[::-1]:
+                    face_img = cv2.resize(
+                        face_img, 
+                        self.preprocessor.target_size, 
+                        interpolation=cv2.INTER_AREA
+                    )
+                
+                # Validate resized face
+                if face_img.shape[0] < 32 or face_img.shape[1] < 32:
+                    print(f"Warning: Face too small after resize: {face_img.shape}")
+                    continue
+                
+                # Step 3: LBP extraction
+                lbp_features = self.lbp_extractor.extract_features(
+                    face_img, 
+                    use_multiscale=False,
+                    use_spatial=True
+                )
+                
+                # Step 4: FaceNet embedding extraction
+                embedding = self.embedder.extract_embedding(face_img)
+                
+                # Step 5: Prediction (if detector is trained)
+                prediction = None
+                confidence = None
+                if self.detector.is_trained:
+                    try:
+                        prediction, confidence = self.detector.predict_single(embedding, lbp_features)
+                    except Exception as e:
+                        print(f"Prediction error: {e}")
+                
+                results.append({
+                    'face_image': face_img,
+                    'bbox': face_data['bbox'],
+                    'lbp_features': lbp_features,
+                    'embedding': embedding,
+                    'prediction': prediction,
+                    'confidence': confidence
+                })
+            except Exception as e:
+                print(f"Error processing face: {e}")
+                continue
+        
+        return {
+            'success': True,
+            'num_faces': len(results),
+            'faces': results,
+            'preprocessed_image': preprocessed
+        }
+    
+    def process_batch(self, image_paths: List[str]) -> List[Dict]:
+        """Process multiple images"""
+        results = []
+        for img_path in image_paths:
+            try:
+                result = self.process_image(image_path=img_path)
+                result['image_path'] = img_path
+                results.append(result)
+            except Exception as e:
+                results.append({
+                    'success': False,
+                    'image_path': img_path,
+                    'error': str(e)
+                })
+        
+        return results
+    
+    def prepare_training_data(self, data_dir: str) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+        """Prepare training data from directory structure"""
+        embeddings_list = []
+        lbp_features_list = []
+        labels_list = []
+        
+        # Iterate through person folders
+        for person_name in os.listdir(data_dir):
+            person_dir = os.path.join(data_dir, person_name)
+            if not os.path.isdir(person_dir):
+                continue
+            
+            print(f"Processing {person_name}...")
+            
+            # Process images in person folder
+            for img_file in os.listdir(person_dir):
+                if not img_file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+                    continue
+                
+                img_path = os.path.join(person_dir, img_file)
+                
+                try:
+                    # Process image
+                    result = self.process_image(image_path=img_path)
+                    
+                    if result['success'] and len(result['faces']) > 0:
+                        # Use first face
+                        face_data = result['faces'][0]
+                        embeddings_list.append(face_data['embedding'])
+                        lbp_features_list.append(face_data['lbp_features'])
+                        labels_list.append(person_name)
+                
+                except Exception as e:
+                    print(f"Error processing {img_path}: {e}")
+                    continue
+        
+        embeddings = np.array(embeddings_list)
+        lbp_features = np.array(lbp_features_list)
+        
+        return embeddings, lbp_features, labels_list
+    
+    def train(self, train_dir: str, val_dir: Optional[str] = None,
+              fine_tune_embedder: bool = False, epochs: int = 20, 
+              batch_size: int = 16, learning_rate: float = 0.01):
+        """Train the detector and optionally fine-tune FaceNet"""
+        print("Preparing training data...")
+        
+        # If fine-tuning embedder
+        if fine_tune_embedder:
+            print("\n" + "="*60)
+            print("Fine-tuning FaceNet model...")
+            print(f"Epochs: {epochs}, Batch Size: {batch_size}, Learning Rate: {learning_rate}")
+            print("="*60)
+            
+            # Collect images for fine-tuning
+            train_images = []
+            train_image_labels = []
+            label_map = {}
+            current_label_id = 0
+            
+            for person_name in os.listdir(train_dir):
+                person_dir = os.path.join(train_dir, person_name)
+                if not os.path.isdir(person_dir):
+                    continue
+                
+                if person_name not in label_map:
+                    label_map[person_name] = current_label_id
+                    current_label_id += 1
+                
+                print(f"Loading images for {person_name}...")
+                
+                for img_file in os.listdir(person_dir):
+                    if not img_file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+                        continue
+                    
+                    img_path = os.path.join(person_dir, img_file)
+                    try:
+                        # Load and preprocess image
+                        preprocessed = self.preprocessor.preprocess(image_path=img_path)
+                        segmentation_result = self.segmenter.segment_face(preprocessed)
+                        
+                        if segmentation_result['num_faces'] > 0:
+                            face_img = segmentation_result['faces'][0]['face_image']
+                            
+                            # NO FILTERING - directly resize to 160x160 for FaceNet
+                            if face_img.shape[:2] != self.preprocessor.target_size[::-1]:
+                                face_img = cv2.resize(
+                                    face_img, 
+                                    self.preprocessor.target_size, 
+                                    interpolation=cv2.INTER_AREA
+                                )
+                            
+                            train_images.append(face_img)
+                            train_image_labels.append(label_map[person_name])
+                    except Exception as e:
+                        print(f"Error loading {img_path}: {e}")
+                        continue
+            
+            print(f"\nCollected {len(train_images)} images for fine-tuning")
+            
+            # Fine-tune FaceNet
+            train_images_array = np.array(train_images)
+            train_labels_array = np.array(train_image_labels)
+            
+            self.embedder.fine_tune_model(
+                train_images_array, 
+                train_labels_array,
+                epochs=epochs,
+                batch_size=batch_size,
+                learning_rate=learning_rate
+            )
+            
+            print("\n✓ FaceNet fine-tuning completed!")
+            print("="*60 + "\n")
+        
+        # Now extract features with the (possibly fine-tuned) FaceNet
+        print("Extracting features for cosine similarity detector training...")
+        train_embeddings, train_lbp, train_labels = self.prepare_training_data(train_dir)
+        
+        print(f"\nTraining cosine similarity detector on {len(train_labels)} samples from {len(set(train_labels))} persons")
+        
+        # Train detector
+        self.detector.train(train_embeddings, train_lbp, train_labels)
+        
+        # Evaluate on validation set if provided
+        if val_dir:
+            print("\nPreparing validation data...")
+            val_embeddings, val_lbp, val_labels = self.prepare_training_data(val_dir)
+            
+            print("Evaluating on validation set...")
+            metrics = self.detector.evaluate(val_embeddings, val_lbp, val_labels)
+            print(f"Validation Accuracy: {metrics['accuracy']:.4f}")
+            print(f"Validation F1-Score: {metrics['f1_score']:.4f}")
+    
+    def save_pipeline(self, model_dir: str):
+        """Save all pipeline components"""
+        os.makedirs(model_dir, exist_ok=True)
+        
+        self.embedder.save_model(os.path.join(model_dir, 'facenet_embedder.keras'))
+        self.detector.save(os.path.join(model_dir, 'detector.pkl'))
+        
+        print(f"Pipeline saved to {model_dir}")
+    
+    def load_pipeline(self, model_dir: str):
+        """Load pipeline components"""
+        embedder_path = os.path.join(model_dir, 'facenet_embedder.keras')
+        if not os.path.exists(embedder_path):
+            embedder_path = os.path.join(model_dir, 'facenet_embedder.h5')
+        
+        # Load FaceNet embedder
+        try:
+            self.embedder.load_model(embedder_path)
+            print("✓ FaceNet embedder loaded")
+        except Exception as e:
+            print(f"Warning: FaceNet load failed: {e}")
+            print("Using new FaceNet model")
+        
+        # Load detector
+        detector_path = os.path.join(model_dir, 'detector.pkl')
+        if os.path.exists(detector_path):
+            try:
+                self.detector.load(detector_path)
+                print("✓ Detector loaded")
+            except Exception as e:
+                print(f"Warning: Detector load failed: {e}")
+        
+        print(f"Pipeline loaded from {model_dir}")
+
